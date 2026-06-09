@@ -1,11 +1,17 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import { Settings, Shield, BadgeCheck, AlertTriangle, Save } from 'lucide-react';
 
 export default function AdminSettings() {
-  const { members, callers } = useApp();
+  const { summaryStats, callers, fetchSummaryStats } = useApp();
+
+  useEffect(() => {
+    if (!summaryStats) {
+      fetchSummaryStats();
+    }
+  }, [summaryStats, fetchSummaryStats]);
 
   const [orgName, setOrgName] = useState('جماعتِ اسلامی ملتان');
   const [defaultBatch, setDefaultBatch] = useState(100);
@@ -107,7 +113,7 @@ export default function AdminSettings() {
               </div>
               <div className="flex justify-between items-center text-xs">
                 <span className="text-slate-400">Total Enrolled Members</span>
-                <span className="font-bold text-slate-700">{members.length.toLocaleString()}</span>
+                <span className="font-bold text-slate-700">{summaryStats?.total?.toLocaleString() || '...'}</span>
               </div>
             </div>
           </div>

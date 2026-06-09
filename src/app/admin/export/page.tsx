@@ -1,12 +1,12 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import React, { useState } from 'react';
 import { useApp, Member } from '@/context/AppContext';
-import { Download, FileSpreadsheet, AlertCircle, RefreshCw, Layers, Users, BadgeCheck } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import { Download, FileSpreadsheet, AlertCircle, RefreshCw, Layers, Users, BadgeCheck, Loader2 } from 'lucide-react';
 
 export default function AdminExport() {
-  const { members, callers } = useApp();
+  const { callers, summaryStats, fetchSummaryStats, fetchMembersSequentially } = useApp();
   const [selectedCallerId, setSelectedCallerId] = useState('');
   const [loading, setLoading] = useState<string | null>(null);
 
@@ -43,11 +43,10 @@ export default function AdminExport() {
   };
 
   // Trigger Excel File Download
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const triggerDownload = (data: any[], fileName: string) => {
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Data');
+  const triggerDownload = (xlsxModule: any, data: any[], fileName: string) => {
+    const worksheet = xlsxModule.utils.json_to_sheet(data);
+    const workbook = xlsxModule.utils.book_new();
+    xlsxModule.utils.book_append_sheet(workbook, worksheet, 'Data');
     
     // Fit columns width roughly
     const maxLengths = data.reduce((acc, row) => {
@@ -59,94 +58,131 @@ export default function AdminExport() {
     }, [] as number[]);
     worksheet['!cols'] = maxLengths.map((w: number) => ({ wch: w }));
 
-    XLSX.writeFile(workbook, `${fileName}.xlsx`);
+    xlsxModule.writeFile(workbook, `${fileName}.xlsx`);
   };
 
-  const handleExportFull = () => {
+  const handleExportFull = async () => {
     setLoading('full');
     logExportQuery('Full Dataset', 'SELECT * FROM members ORDER BY id ASC;');
-    
-    setTimeout(() => {
-      const data = mapMembersToExcel(members);
-      triggerDownload(data, 'JI_Multan_Full_Registry');
+    try {
+      const fetched = await fetchMembersSequentially();
+      const data = mapMembersToExcel(fetched);
+      const xlsxModule = await import('xlsx');
+      triggerDownload(xlsxModule, data, 'JI_Multan_Full_Registry');
+    } catch (err) {
+      console.error('Export full registry failed:', err);
+    } finally {
       setLoading(null);
-    }, 500);
+    }
   };
 
-  const handleExportCompleted = () => {
+  const handleExportCompleted = async () => {
     setLoading('completed');
     logExportQuery('Completed Only', "SELECT * FROM members WHERE call_status = 'reached' ORDER BY id ASC;");
-
-    setTimeout(() => {
-      const completedList = members.filter(m => m.call_status === 'reached');
-      const data = mapMembersToExcel(completedList);
-      triggerDownload(data, 'JI_Multan_Completed_Leads');
+    try {
+      const fetched = await fetchMembersSequentially(q => q.eq('call_status', 'reached'));
+      const data = mapMembersToExcel(fetched);
+      const xlsxModule = await import('xlsx');
+      triggerDownload(xlsxModule, data, 'JI_Multan_Completed_Leads');
+    } catch (err) {
+      console.error('Export completed leads failed:', err);
+    } finally {
       setLoading(null);
-    }, 500);
+    }
   };
 
-  const handleExportCallerSpecific = () => {
+  const handleExportCallerSpecific = async () => {
     if (!selectedCallerId) return;
     setLoading('caller');
     logExportQuery('Caller Specific', `SELECT * FROM members WHERE assigned_to = '${selectedCallerId}' ORDER BY id ASC;`);
-
-    setTimeout(() => {
-      const callerLeads = members.filter(m => m.assigned_to === selectedCallerId);
+    try {
+      const fetched = await fetchMembersSequentially(q => q.eq('assigned_to', selectedCallerId));
       const callerName = callers.find(c => c.id === selectedCallerId)?.name || 'Caller';
-      const data = mapMembersToExcel(callerLeads);
-      triggerDownload(data, `JI_Multan_Leads_${callerName.replace(/\s+/g, '_')}`);
+      const data = mapMembersToExcel(fetched);
+      const xlsxModule = await import('xlsx');
+      triggerDownload(xlsxModule, data, `JI_Multan_Leads_${callerName.replace(/\s+/g, '_')}`);
+    } catch (err) {
+      console.error('Export caller specific leads failed:', err);
+    } finally {
       setLoading(null);
-    }, 500);
+    }
   };
 
-  const handleExportSummary = () => {
+  const handleExportSummary = async () => {
     setLoading('summary');
     logExportQuery(
       'Outcome Summary',
       "SELECT call_status, COUNT(*) FROM members GROUP BY call_status; SELECT name, COUNT(*) FROM callers JOIN members ON callers.id = members.assigned_to GROUP BY name;"
     );
 
-    setTimeout(() => {
-      // Create status sheet
-      const statusCounts = members.reduce((acc, m) => {
-        acc[m.call_status] = (acc[m.call_status] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>);
+    try {
+      let activeStats = summaryStats;
+      if (!activeStats) {
+        activeStats = await fetchSummaryStats() || null;
+      }
+      
+      const stats = activeStats;
+      if (!stats) {
+        alert('Campaign stats are still loading. Please try again.');
+        setLoading(null);
+        return;
+      }
 
-      const statusSummary = Object.keys(statusCounts).map(status => ({
-        'Call Status': status.toUpperCase().replace('_', ' '),
-        'Count': statusCounts[status],
-        'Percentage': `${Math.round((statusCounts[status] / members.length) * 100)}%`
+      // Outcome Metrics Summary
+      const statusSummary = [
+        { 
+          'Call Status': 'REACHED / VERIFIED', 
+          'Count': stats.reached, 
+          'Percentage': `${stats.total > 0 ? Math.round((stats.reached / stats.total) * 100) : 0}%` 
+        },
+        { 
+          'Call Status': 'NOT PICKED', 
+          'Count': stats.notPicked, 
+          'Percentage': `${stats.total > 0 ? Math.round((stats.notPicked / stats.total) * 100) : 0}%` 
+        },
+        { 
+          'Call Status': 'POWER OFF', 
+          'Count': stats.powerOff, 
+          'Percentage': `${stats.total > 0 ? Math.round((stats.powerOff / stats.total) * 100) : 0}%` 
+        },
+        { 
+          'Call Status': 'REFUSED', 
+          'Count': stats.refused, 
+          'Percentage': `${stats.total > 0 ? Math.round((stats.refused / stats.total) * 100) : 0}%` 
+        },
+        { 
+          'Call Status': 'PENDING / NOT CALLED', 
+          'Count': stats.pending, 
+          'Percentage': `${stats.total > 0 ? Math.round((stats.pending / stats.total) * 100) : 0}%` 
+        },
+      ];
+
+      // Caller Performance Summary
+      const callerSummary = stats.callerStats.map(c => ({
+        'Caller Agent': c.name,
+        'Email': c.email,
+        'Total Assigned': c.assigned,
+        'Total Completed': c.completed,
+        'Success (Reached)': c.reached,
+        'Pending Call': c.assigned - c.completed,
+        'Agent Progress': `${c.performance}%`
       }));
 
-      // Create caller summary sheet
-      const callerSummary = callerList.map(c => {
-        const callerLeads = members.filter(m => m.assigned_to === c.id);
-        const completed = callerLeads.filter(m => m.call_status !== 'not_called').length;
-        const reached = callerLeads.filter(m => m.call_status === 'reached').length;
-        
-        return {
-          'Caller Agent': c.name,
-          'Email': c.email,
-          'Total Assigned': callerLeads.length,
-          'Total Completed': completed,
-          'Success (Reached)': reached,
-          'Pending Call': callerLeads.length - completed,
-          'Agent Progress': `${callerLeads.length > 0 ? Math.round((completed / callerLeads.length) * 100) : 0}%`
-        };
-      });
-
-      const workbook = XLSX.utils.book_new();
+      const xlsxModule = await import('xlsx');
+      const workbook = xlsxModule.utils.book_new();
       
-      const statusSheet = XLSX.utils.json_to_sheet(statusSummary);
-      XLSX.utils.book_append_sheet(workbook, statusSheet, 'Outcome Metrics');
+      const statusSheet = xlsxModule.utils.json_to_sheet(statusSummary);
+      xlsxModule.utils.book_append_sheet(workbook, statusSheet, 'Outcome Metrics');
 
-      const callerSheet = XLSX.utils.json_to_sheet(callerSummary);
-      XLSX.utils.book_append_sheet(workbook, callerSheet, 'Caller Performance');
+      const callerSheet = xlsxModule.utils.json_to_sheet(callerSummary);
+      xlsxModule.utils.book_append_sheet(workbook, callerSheet, 'Caller Performance');
 
-      XLSX.writeFile(workbook, 'JI_Multan_Campaign_Summary.xlsx');
+      xlsxModule.writeFile(workbook, 'JI_Multan_Campaign_Summary.xlsx');
+    } catch (err) {
+      console.error('Export summary failed:', err);
+    } finally {
       setLoading(null);
-    }, 500);
+    }
   };
 
   return (
@@ -159,8 +195,8 @@ export default function AdminExport() {
         <div>
           <h2 className="text-base font-bold text-slate-800">Export Registry & Reports</h2>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            Download Excel spreadsheets compile data in real time directly from the local cache. 
-            Once connected to Supabase, these exports will run server-side queries to fetch the live database records.
+            Download Excel spreadsheets compile data in real time directly.
+            These exports pull records from Supabase in batches sequentially to prevent client memory leaks.
           </p>
         </div>
       </div>
@@ -175,7 +211,7 @@ export default function AdminExport() {
               Full Registry Excel
             </h3>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Export the entire registry of unique members ({members.length} records), including calculated ages, call outcomes, enriched addresses, and occupations.
+              Export the entire registry of unique members ({summaryStats?.total?.toLocaleString() || '...'} records), including calculated ages, call outcomes, enriched addresses, and occupations.
             </p>
           </div>
           <button
@@ -184,8 +220,17 @@ export default function AdminExport() {
             disabled={loading !== null}
             className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-[#0d5c3a] hover:bg-[#073b24] text-white rounded-lg text-xs font-bold transition-all-300 disabled:opacity-50"
           >
-            <Download className="h-4 w-4" />
-            {loading === 'full' ? 'Generating Excel...' : 'Export Full Dataset'}
+            {loading === 'full' ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Generating Excel...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4" />
+                Export Full Dataset
+              </>
+            )}
           </button>
         </div>
 
@@ -197,7 +242,7 @@ export default function AdminExport() {
               Completed verified records
             </h3>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Export only the records where the call status is marked as **Reached / Verified** ({members.filter(m => m.call_status === 'reached').length} records). This contains your final enriched member list.
+              Export only the records where the call status is marked as **Reached / Verified** ({summaryStats?.reached?.toLocaleString() || '...'} records). This contains your final enriched member list.
             </p>
           </div>
           <button
@@ -206,8 +251,17 @@ export default function AdminExport() {
             disabled={loading !== null}
             className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all-300 disabled:opacity-50"
           >
-            <Download className="h-4 w-4" />
-            {loading === 'completed' ? 'Generating Excel...' : 'Export Completed Leads'}
+            {loading === 'completed' ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Generating Excel...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4" />
+                Export Completed Leads
+              </>
+            )}
           </button>
         </div>
 
@@ -244,8 +298,12 @@ export default function AdminExport() {
               disabled={loading !== null || !selectedCallerId}
               className="flex items-center justify-center gap-1.5 px-4 py-2 bg-[#0d5c3a] hover:bg-[#073b24] text-white rounded-lg text-xs font-bold transition-all-300 disabled:opacity-50"
             >
-              <Download className="h-4 w-4" />
-              {loading === 'caller' ? 'Exporting...' : 'Export'}
+              {loading === 'caller' ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              <span>{loading === 'caller' ? 'Exporting...' : 'Export'}</span>
             </button>
           </div>
         </div>
@@ -267,8 +325,17 @@ export default function AdminExport() {
             disabled={loading !== null}
             className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition-all-300 disabled:opacity-50"
           >
-            <Download className="h-4 w-4" />
-            {loading === 'summary' ? 'Generating summary...' : 'Export Campaign Summary'}
+            {loading === 'summary' ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Generating summary...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4" />
+                Export Campaign Summary
+              </>
+            )}
           </button>
         </div>
 
@@ -277,9 +344,9 @@ export default function AdminExport() {
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex gap-3 text-xs text-slate-500 items-start">
         <AlertCircle className="h-5 w-5 shrink-0 text-slate-400" />
         <div className="space-y-1">
-          <p className="font-bold text-slate-700">Developer Information:</p>
+          <p className="font-bold text-slate-700">Database Optimization Details:</p>
           <p>
-            When migrating to Supabase, these download actions should trigger an API route in Next.js (e.g., `/api/export`) or utilize server side components to compile and stream the binary stream directly to save client memory.
+            Excel generation uses client-side XLSX streaming in memory, which triggers lazy chunked querying in sequence to compile the download cleanly.
           </p>
         </div>
       </div>

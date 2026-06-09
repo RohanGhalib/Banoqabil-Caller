@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React from 'react';
 import { useApp } from '@/context/AppContext';
 import { 
   Users, 
@@ -9,86 +9,27 @@ import {
   CheckCircle2, 
   TrendingUp, 
   RefreshCw,
-  UserCheck
+  UserCheck,
+  Loader2
 } from 'lucide-react';
 
 export default function AdminDashboard() {
-  const { members, callers } = useApp();
+  const { summaryStats } = useApp();
 
-  // Console query logs
-  const getStatsQueries = () => {
-    console.log(
-      `%c[SUPABASE SYNC TODO] %cDashboard Metrics Compilation Queries:
-1. Total Members: %cSELECT COUNT(*) FROM members;
-%c2. Calls Completed: %cSELECT COUNT(*) FROM members WHERE call_status != 'not_called';
-%c3. Call Status Counts: %cSELECT call_status, COUNT(*) FROM members GROUP BY call_status;
-%c4. Caller Metrics: %cSELECT assigned_to, call_status, COUNT(*) FROM members WHERE assigned_to IS NOT NULL GROUP BY assigned_to, call_status;`,
-      'color: #0d5c3a; font-weight: bold; font-size: 11px;',
-      'color: #334155; font-weight: bold;',
-      'color: #0d5c3a; font-family: monospace;',
-      'color: #334155;',
-      'color: #0d5c3a; font-family: monospace;',
-      'color: #334155;',
-      'color: #0d5c3a; font-family: monospace;',
-      'color: #334155;',
-      'color: #0d5c3a; font-family: monospace;'
+  if (!summaryStats) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center bg-white border border-slate-200 rounded-2xl shadow-sm">
+        <div className="text-center space-y-3">
+          <Loader2 className="h-10 w-10 animate-spin text-[#0d5c3a] mx-auto" />
+          <h3 className="font-bold text-slate-800 text-sm">Compiling Campaign Metrics</h3>
+          <p className="text-xs text-slate-400">Please wait while we aggregate the database counts...</p>
+        </div>
+      </div>
     );
-  };
+  }
 
-  // Compile calculations
-  const stats = useMemo(() => {
-    getStatsQueries();
-
-    const total = members.length;
-    const reached = members.filter(m => m.call_status === 'reached').length;
-    const notPicked = members.filter(m => m.call_status === 'not_picked').length;
-    const powerOff = members.filter(m => m.call_status === 'power_off').length;
-    const refused = members.filter(m => m.call_status === 'refused').length;
-    const completed = reached + notPicked + powerOff + refused;
-    const pending = total - completed;
-    const successRate = completed > 0 ? Math.round((reached / completed) * 100) : 0;
-    const progressRate = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-    return {
-      total,
-      completed,
-      pending,
-      reached,
-      notPicked,
-      powerOff,
-      refused,
-      successRate,
-      progressRate
-    };
-  }, [members]);
-
-  // Compile stats per caller
-  const callerStats = useMemo(() => {
-    return callers
-      .filter(c => c.role === 'caller')
-      .map(c => {
-        const callerLeads = members.filter(m => m.assigned_to === c.id);
-        const assigned = callerLeads.length;
-        const reachedCount = callerLeads.filter(m => m.call_status === 'reached').length;
-        const completedCount = callerLeads.filter(m => m.call_status !== 'not_called').length;
-        const pendingCount = assigned - completedCount;
-        const performance = assigned > 0 ? Math.round((completedCount / assigned) * 100) : 0;
-
-        return {
-          id: c.id,
-          name: c.name,
-          email: c.email,
-          assigned,
-          completed: completedCount,
-          pending: pendingCount,
-          reached: reachedCount,
-          performance
-        };
-      });
-  }, [callers, members]);
-
-  // SVG calculations for circular progress bar
-  const strokeDashoffset = 251.2 - (251.2 * stats.progressRate) / 100;
+  // Visual Circular Progress SVG dash
+  const strokeDashoffset = 251.2 - (251.2 * summaryStats.progressRate) / 100;
 
   return (
     <div className="space-y-6" id="admin-dashboard-container">
@@ -99,7 +40,7 @@ export default function AdminDashboard() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Members</p>
-            <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">{stats.total.toLocaleString()}</h3>
+            <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">{summaryStats.total.toLocaleString()}</h3>
             <p className="text-xs text-slate-400">Unique registered accounts</p>
           </div>
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-[#0d5c3a]">
@@ -111,10 +52,10 @@ export default function AdminDashboard() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Calls Done</p>
-            <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">{stats.completed.toLocaleString()}</h3>
+            <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">{summaryStats.completed.toLocaleString()}</h3>
             <p className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
               <TrendingUp className="h-3.5 w-3.5" />
-              {stats.progressRate}% overall completion
+              {summaryStats.progressRate}% overall completion
             </p>
           </div>
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
@@ -126,7 +67,7 @@ export default function AdminDashboard() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Pending Calls</p>
-            <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">{stats.pending.toLocaleString()}</h3>
+            <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">{summaryStats.pending.toLocaleString()}</h3>
             <p className="text-xs text-slate-400">Awaiting allocations / agent call</p>
           </div>
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
@@ -138,7 +79,7 @@ export default function AdminDashboard() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between">
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Success Rate</p>
-            <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">{stats.successRate}%</h3>
+            <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">{summaryStats.successRate}%</h3>
             <p className="text-xs text-slate-400">Data gathered / calls made</p>
           </div>
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
@@ -171,12 +112,12 @@ export default function AdminDashboard() {
                   strokeWidth="20"
                   fill="transparent"
                   strokeDasharray="439.8"
-                  strokeDashoffset={439.8 - (439.8 * (stats.reached / (stats.completed || 1))) * (stats.completed > 0 ? 1 : 0)}
+                  strokeDashoffset={439.8 - (439.8 * (summaryStats.reached / (summaryStats.completed || 1))) * (summaryStats.completed > 0 ? 1 : 0)}
                 />
               </svg>
               {/* Center percentage badge */}
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-2xl font-bold text-slate-800">{stats.progressRate}%</span>
+                <span className="text-2xl font-bold text-slate-800">{summaryStats.progressRate}%</span>
                 <span className="text-[10px] text-slate-400 font-semibold tracking-wide uppercase">Calls Done</span>
               </div>
             </div>
@@ -190,9 +131,9 @@ export default function AdminDashboard() {
                   <span className="text-sm text-slate-600 font-medium">Reached & Verified</span>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-bold text-slate-800">{stats.reached}</p>
+                  <p className="text-sm font-bold text-slate-800">{summaryStats.reached}</p>
                   <p className="text-[10px] text-slate-400">
-                    {stats.completed > 0 ? Math.round((stats.reached / stats.completed) * 100) : 0}% of calls
+                    {summaryStats.completed > 0 ? Math.round((summaryStats.reached / summaryStats.completed) * 100) : 0}% of calls
                   </p>
                 </div>
               </div>
@@ -204,9 +145,9 @@ export default function AdminDashboard() {
                   <span className="text-sm text-slate-600 font-medium">Not Picked</span>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-bold text-slate-800">{stats.notPicked}</p>
+                  <p className="text-sm font-bold text-slate-800">{summaryStats.notPicked}</p>
                   <p className="text-[10px] text-slate-400">
-                    {stats.completed > 0 ? Math.round((stats.notPicked / stats.completed) * 100) : 0}% of calls
+                    {summaryStats.completed > 0 ? Math.round((summaryStats.notPicked / summaryStats.completed) * 100) : 0}% of calls
                   </p>
                 </div>
               </div>
@@ -218,9 +159,9 @@ export default function AdminDashboard() {
                   <span className="text-sm text-slate-600 font-medium">Power Off</span>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-bold text-slate-800">{stats.powerOff}</p>
+                  <p className="text-sm font-bold text-slate-800">{summaryStats.powerOff}</p>
                   <p className="text-[10px] text-slate-400">
-                    {stats.completed > 0 ? Math.round((stats.powerOff / stats.completed) * 100) : 0}% of calls
+                    {summaryStats.completed > 0 ? Math.round((summaryStats.powerOff / summaryStats.completed) * 100) : 0}% of calls
                   </p>
                 </div>
               </div>
@@ -232,9 +173,9 @@ export default function AdminDashboard() {
                   <span className="text-sm text-slate-600 font-medium">Refused Data</span>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-bold text-slate-800">{stats.refused}</p>
+                  <p className="text-sm font-bold text-slate-800">{summaryStats.refused}</p>
                   <p className="text-[10px] text-slate-400">
-                    {stats.completed > 0 ? Math.round((stats.refused / stats.completed) * 100) : 0}% of calls
+                    {summaryStats.completed > 0 ? Math.round((summaryStats.refused / summaryStats.completed) * 100) : 0}% of calls
                   </p>
                 </div>
               </div>
@@ -266,16 +207,16 @@ export default function AdminDashboard() {
               />
             </svg>
             <div className="absolute flex flex-col items-center justify-center">
-              <span className="text-2xl font-extrabold text-slate-800">{stats.progressRate}%</span>
+              <span className="text-2xl font-extrabold text-slate-800">{summaryStats.progressRate}%</span>
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Progress</span>
             </div>
           </div>
 
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-center space-y-1">
             <p className="text-xs text-slate-500 font-medium">Total Database Size</p>
-            <p className="text-xl font-extrabold text-[#0d5c3a]">{stats.total.toLocaleString()}</p>
+            <p className="text-xl font-extrabold text-[#0d5c3a]">{summaryStats.total.toLocaleString()}</p>
             <p className="text-[10px] text-slate-400 font-semibold">
-              {stats.completed} Calls Logged | {stats.pending} Calls Remaining
+              {summaryStats.completed.toLocaleString()} Calls Logged | {summaryStats.pending.toLocaleString()} Calls Remaining
             </p>
           </div>
         </div>
@@ -308,21 +249,21 @@ export default function AdminDashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
-              {callerStats.length === 0 ? (
+              {summaryStats.callerStats.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-8 text-center text-slate-400">
                     No callers found. Add callers in the &quot;Callers&quot; tab.
                   </td>
                 </tr>
               ) : (
-                callerStats.map(c => (
+                summaryStats.callerStats.map(c => (
                   <tr key={c.id} className="hover:bg-slate-50/50 transition-colors" id={`caller-row-${c.id}`}>
                     <td className="py-3.5 px-6 font-semibold text-slate-800">{c.name}</td>
                     <td className="py-3.5 px-6 text-slate-500">{c.email}</td>
-                    <td className="py-3.5 px-6 text-center font-medium text-slate-700">{c.assigned}</td>
-                    <td className="py-3.5 px-6 text-center text-[#0d5c3a] font-bold">{c.completed}</td>
-                    <td className="py-3.5 px-6 text-center text-amber-600 font-bold">{c.pending}</td>
-                    <td className="py-3.5 px-6 text-center text-emerald-600 font-bold">{c.reached}</td>
+                    <td className="py-3.5 px-6 text-center font-medium text-slate-700">{c.assigned.toLocaleString()}</td>
+                    <td className="py-3.5 px-6 text-center text-[#0d5c3a] font-bold">{c.completed.toLocaleString()}</td>
+                    <td className="py-3.5 px-6 text-center text-amber-600 font-bold">{(c.assigned - c.completed).toLocaleString()}</td>
+                    <td className="py-3.5 px-6 text-center text-emerald-600 font-bold">{c.reached.toLocaleString()}</td>
                     <td className="py-3.5 px-6 text-center">
                       <div className="w-full bg-slate-100 rounded-full h-2">
                         <div 

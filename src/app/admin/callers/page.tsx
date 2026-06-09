@@ -1,20 +1,27 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
-import { Users, UserPlus, Mail, ShieldAlert, BadgeCheck, X } from 'lucide-react';
+import { Users, UserPlus, Mail, ShieldAlert, BadgeCheck, X, Loader2 } from 'lucide-react';
 
 export default function AdminCallers() {
-  const { callers, members, addCaller } = useApp();
+  const { callers, summaryStats, addCaller, fetchSummaryStats } = useApp();
   
   const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // List callers and join with stats
+  // Trigger loading of summary stats on mount if not loaded
+  useEffect(() => {
+    if (!summaryStats) {
+      fetchSummaryStats();
+    }
+  }, [summaryStats, fetchSummaryStats]);
+
   const callerList = callers.filter(c => c.role === 'caller');
 
   const handleAddCallerSubmit = async (e: React.FormEvent) => {
@@ -31,12 +38,18 @@ export default function AdminCallers() {
 
     try {
       const normalizedEmail = email.includes('@') ? email : `${email}@ji.org`;
-      const added = await addCaller(name, normalizedEmail);
+      const added = await addCaller(name, normalizedEmail, password);
       
       if (added) {
-        setSuccessMsg(`Caller '${name}' created successfully! Credentials: Email = ${normalizedEmail}, Password = same as email prefix.`);
+        const displayPassword = password || normalizedEmail.split('@')[0];
+        setSuccessMsg(`Caller '${name}' created successfully! Credentials: Email = ${normalizedEmail}, Password = ${displayPassword}.`);
         setName('');
         setEmail('');
+        setPassword('');
+        
+        // Re-sync summary stats to add new caller (with 0 leads)
+        await fetchSummaryStats();
+
         setTimeout(() => {
           setModalOpen(false);
           setSuccessMsg(null);
@@ -51,6 +64,18 @@ export default function AdminCallers() {
       setLoading(false);
     }
   };
+
+  if (!summaryStats) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center bg-white border border-slate-200 rounded-2xl shadow-sm">
+        <div className="text-center space-y-3">
+          <Loader2 className="h-10 w-10 animate-spin text-[#0d5c3a] mx-auto" />
+          <h3 className="font-bold text-slate-800 text-sm">Loading Caller Directory</h3>
+          <p className="text-xs text-slate-400">Loading caller agent listings...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6" id="admin-callers-container">
@@ -83,11 +108,16 @@ export default function AdminCallers() {
           </div>
         ) : (
           callerList.map(c => {
-            const callerLeads = members.filter(m => m.assigned_to === c.id);
-            const assigned = callerLeads.length;
-            const completed = callerLeads.filter(m => m.call_status !== 'not_called').length;
-            const reached = callerLeads.filter(m => m.call_status === 'reached').length;
-            const progress = assigned > 0 ? Math.round((completed / assigned) * 100) : 0;
+            const stat = summaryStats.callerStats.find(s => s.id === c.id) || {
+              assigned: 0,
+              completed: 0,
+              reached: 0,
+              performance: 0
+            };
+            const assigned = stat.assigned;
+            const completed = stat.completed;
+            const reached = stat.reached;
+            const progress = stat.performance;
             
             return (
               <div 
@@ -135,15 +165,15 @@ export default function AdminCallers() {
                 <div className="grid grid-cols-3 gap-2 mt-5 bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
                   <div>
                     <p className="text-[10px] font-bold text-slate-400 uppercase">Allocated</p>
-                    <p className="text-base font-extrabold text-slate-700 mt-0.5">{assigned}</p>
+                    <p className="text-base font-extrabold text-slate-700 mt-0.5">{assigned.toLocaleString()}</p>
                   </div>
                   <div>
                     <p className="text-[10px] font-bold text-slate-400 uppercase">Reached</p>
-                    <p className="text-base font-extrabold text-emerald-600 mt-0.5">{reached}</p>
+                    <p className="text-base font-extrabold text-emerald-600 mt-0.5">{reached.toLocaleString()}</p>
                   </div>
                   <div>
                     <p className="text-[10px] font-bold text-slate-400 uppercase">Done</p>
-                    <p className="text-base font-extrabold text-[#0d5c3a] mt-0.5">{completed}</p>
+                    <p className="text-base font-extrabold text-[#0d5c3a] mt-0.5">{completed.toLocaleString()}</p>
                   </div>
                 </div>
               </div>
@@ -219,6 +249,20 @@ export default function AdminCallers() {
                 <p className="text-[10px] text-slate-400 mt-1">
                   Note: If domain is omitted, `@ji.org` will be automatically appended.
                 </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1" htmlFor="caller-password">
+                  Password (Optional)
+                </label>
+                <input
+                  id="caller-password"
+                  type="password"
+                  placeholder="Defaults to username prefix if empty"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 py-2 px-3 text-sm outline-none transition-all focus:border-[#0d5c3a] focus:ring-1 focus:ring-[#0d5c3a]"
+                />
               </div>
 
               <div className="pt-2">

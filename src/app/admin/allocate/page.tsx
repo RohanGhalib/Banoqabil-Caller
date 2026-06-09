@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
-import { Layers, HelpCircle, BadgeCheck, AlertTriangle, ArrowRight, RefreshCw } from 'lucide-react';
+import { Layers, HelpCircle, BadgeCheck, AlertTriangle, ArrowRight, RefreshCw, Loader2 } from 'lucide-react';
 
 export default function AdminAllocate() {
-  const { members, callers, allocateLeads } = useApp();
+  const { summaryStats, callers, allocateLeads, fetchSummaryStats } = useApp();
   
   const [selectedCallerId, setSelectedCallerId] = useState('');
   const [allocationCount, setAllocationCount] = useState(100);
@@ -15,16 +15,27 @@ export default function AdminAllocate() {
 
   const callerList = callers.filter(c => c.role === 'caller');
 
-  // Compute unassigned and assigned lead counts
+  // Trigger loading of summary stats on mount if not loaded
+  useEffect(() => {
+    if (!summaryStats) {
+      fetchSummaryStats();
+    }
+  }, [summaryStats, fetchSummaryStats]);
+
+  // Compute unassigned and assigned lead counts from summaryStats
   const counts = useMemo(() => {
-    const unassigned = members.filter(m => m.assigned_to === null).length;
-    const assigned = members.length - unassigned;
+    if (!summaryStats) return { total: 0, unassigned: 0, assigned: 0 };
+    
+    const assigned = summaryStats.callerStats.reduce((sum, c) => sum + c.assigned, 0);
+    const total = summaryStats.total;
+    const unassigned = Math.max(0, total - assigned);
+    
     return {
-      total: members.length,
+      total,
       unassigned,
       assigned
     };
-  }, [members]);
+  }, [summaryStats]);
 
   const handleAllocate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,6 +80,18 @@ export default function AdminAllocate() {
       setLoading(false);
     }
   };
+
+  if (!summaryStats) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center bg-white border border-slate-200 rounded-2xl shadow-sm">
+        <div className="text-center space-y-3">
+          <Loader2 className="h-10 w-10 animate-spin text-[#0d5c3a] mx-auto" />
+          <h3 className="font-bold text-slate-800 text-sm">Loading Allocation Metrics</h3>
+          <p className="text-xs text-slate-400">Querying lead assignment totals...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6" id="admin-allocate-container">
@@ -151,7 +174,8 @@ export default function AdminAllocate() {
                 >
                   <option value="">-- Choose a Caller --</option>
                   {callerList.map(c => {
-                    const callerAssigned = members.filter(m => m.assigned_to === c.id).length;
+                    const stat = summaryStats?.callerStats.find(s => s.id === c.id);
+                    const callerAssigned = stat ? stat.assigned : 0;
                     return (
                       <option key={c.id} value={c.id}>
                         {c.name} ({callerAssigned} leads assigned)
@@ -187,8 +211,17 @@ export default function AdminAllocate() {
                 disabled={loading || counts.unassigned === 0}
                 className="flex items-center justify-center gap-2 px-6 py-3 bg-[#0d5c3a] hover:bg-[#073b24] text-white rounded-lg text-sm font-semibold tracking-wide shadow-md shadow-emerald-900/10 transition-all-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Assign Leads Batch
-                <ArrowRight className="h-4 w-4" />
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Allocating...
+                  </>
+                ) : (
+                  <>
+                    Assign Leads Batch
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
               </button>
             </div>
           </form>

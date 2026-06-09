@@ -42,7 +42,7 @@ export default function Login() {
       // Auto-append domain if simple username is entered
       const normalizedEmail = email.includes('@') ? email : `${email}@ji.org`;
       
-      const successLogin = await login(normalizedEmail, role);
+      const successLogin = await login(normalizedEmail, password, role);
       
       if (successLogin) {
         setSuccess(true);
@@ -201,9 +201,9 @@ export default function Login() {
           {/* User Guide for testing */}
           <div className="mt-6 border-t border-slate-100 pt-4 text-center">
             <p className="text-xs text-slate-400">
-              Testing accounts:<br />
-              <strong className="text-slate-600">Admin</strong>: <code className="bg-slate-50 px-1 py-0.5 rounded">admin@ji.org</code> | Password: any<br />
-              <strong className="text-slate-600">Caller</strong>: <code className="bg-slate-50 px-1 py-0.5 rounded">caller1@ji.org</code> or any username | Password: any
+              Accounts configured in Supabase:<br />
+              <strong className="text-slate-600">Admin</strong>: Create first account in Supabase Dashboard Auth UI.<br />
+              <strong className="text-slate-600">Callers</strong>: Created inside the Admin panel (default password is email prefix).
             </p>
           </div>
 
