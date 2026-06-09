@@ -75,6 +75,7 @@ interface AppContextType {
   logout: () => void;
   addCaller: (name: string, email: string, password?: string) => Promise<boolean>;
   allocateLeads: (callerId: string, count: number) => Promise<number>;
+  deallocateLeads: (callerId: string, amount: 'all' | number) => Promise<number>;
   updateMember: (
     memberId: number,
     updates: Partial<Pick<Member, 'call_status' | 'address' | 'occupation'>>
@@ -445,6 +446,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Deallocate/Unassign Leads (Admin action calling server API to deallocate)
+  const deallocateLeads = async (callerId: string, amount: 'all' | number): Promise<number> => {
+    try {
+      const response = await fetch('/api/deallocate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callerId, amount })
+      });
+
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      // Re-fetch summary stats to sync admin dashboard
+      await fetchSummaryStats();
+      return data.deallocatedCount || 0;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to deallocate leads';
+      throw new Error(message);
+    }
+  };
+
   // Update Member details (Caller action editing direct RLS-protected columns)
   const updateMember = async (
     memberId: number,
@@ -488,6 +513,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         logout,
         addCaller,
         allocateLeads,
+        deallocateLeads,
         updateMember
       }}
     >
